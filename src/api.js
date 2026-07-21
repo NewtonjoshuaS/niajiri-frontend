@@ -1,4 +1,5 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+const RAW_URL = import.meta.env.VITE_API_URL || "https://niajiri-backend.onrender.com/api";
+const API_URL = RAW_URL.replace(/\/+$/, "");
 
 export class ApiError extends Error {
   constructor(message, status) {
@@ -8,7 +9,8 @@ export class ApiError extends Error {
 }
 
 export async function request(path, { token, ...options } = {}) {
-  const response = await fetch(`${API_URL}${path}`, {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const response = await fetch(`${API_URL}${normalizedPath}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -61,4 +63,3 @@ export const api = {
     });
   }
 };
-
