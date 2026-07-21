@@ -411,6 +411,188 @@ function JobCard({ job, onEdit, onToggleStatus, onDelete }) {
   );
 }
 
+function ApplicationModal({ applicationSummary, token, onClose, onUpdated }) {
+  const [detail, setDetail] = useState(null);
+  const [status, setStatus] = useState(applicationSummary.status);
+  const [note, setNote] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState();
+
+  useEffect(() => {
+    let isMounted = true;
+    api.getApplication(token, applicationSummary.id)
+      .then((res) => {
+        if (isMounted) {
+          setDetail(res.data.application);
+          setStatus(res.data.application.status);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (isMounted) {
+          setNotice({ type: "error", text: err.message });
+          setLoading(false);
+        }
+      });
+    return () => { isMounted = false; };
+  }, [applicationSummary.id, token]);
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setNotice();
+
+    try {
+      await api.updateApplicationStatus(token, applicationSummary.id, status, note.trim() || undefined);
+      setNotice({ type: "success", text: "Application status updated successfully! Candidate status page updated." });
+      setNote("");
+      const updatedRes = await api.getApplication(token, applicationSummary.id);
+      setDetail(updatedRes.data.application);
+      onUpdated();
+    } catch (err) {
+      setNotice({ type: "error", text: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const getMediaUrl = (path) => path ? (path.startsWith("http") ? path : `${import.meta.env.VITE_API_URL?.replace("/api", "") || "https://niajiri-backend.onrender.com"}${path}`) : "";
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <header className="modal-header">
+          <div>
+            <h3>{applicationSummary.applicant.fullName}</h3>
+            <span>Applying for: {applicationSummary.job.title}</span>
+          </div>
+          <button type="button" className="modal-close-btn" onClick={onClose}>×</button>
+        </header>
+
+        <div className="modal-body">
+          {loading ? (
+            <p className="muted" style={{ textAlign: "center", padding: 20 }}>Loading full candidate details…</p>
+          ) : (
+            <>
+              {/* Candidate Info Section */}
+              <section className="modal-section">
+                <h4>👤 Candidate Details</h4>
+                <div className="candidate-info-grid">
+                  <div className="candidate-info-item">
+                    <strong>Full Name</strong>
+                    <span>{detail?.applicant?.fullName}</span>
+                  </div>
+                  <div className="candidate-info-item">
+                    <strong>WhatsApp / Phone</strong>
+                    <span>{detail?.applicant?.phone}</span>
+                  </div>
+                  <div className="candidate-info-item">
+                    <strong>Email Address</strong>
+                    <span>{detail?.applicant?.email || "N/A"}</span>
+                  </div>
+                  <div className="candidate-info-item">
+                    <strong>Location</strong>
+                    <span>{detail?.applicant?.location || "N/A"}</span>
+                  </div>
+                  <div className="candidate-info-item" style={{ gridColumn: "1 / -1" }}>
+                    <strong>Skills</strong>
+                    <span>{detail?.applicant?.skills || "Not specified"}</span>
+                  </div>
+                </div>
+
+                {(detail?.resumeUrl || detail?.applicant?.cvUrl) && (
+                  <div style={{ marginTop: 14 }}>
+                    <a
+                      href={getMediaUrl(detail.resumeUrl || detail.applicant.cvUrl)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="cv-link-btn"
+                    >
+                      📄 Download / Open Uploaded CV
+                    </a>
+                  </div>
+                )}
+              </section>
+
+              {/* Screening Q&A Responses */}
+              {detail?.answers?.length > 0 && (
+                <section className="modal-section">
+                  <h4>📝 Screening Question Responses</h4>
+                  <div className="screening-qa-list">
+                    {detail.answers.map((answer) => (
+                      <div key={answer.id} className="qa-item">
+                        <div className="qa-question">{answer.question?.label || "Screening Question"}</div>
+                        <div className="qa-answer">{answer.value || "(No answer provided)"}</div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* Recruiter Action & Status Update Form */}
+              <section className="modal-section" style={{ background: "#ffffff", border: "1.5px solid var(--teal-medium)" }}>
+                <h4>⚡ Take Action / Update Status</h4>
+                <form className="recruiter-action-form" onSubmit={handleSave}>
+                  <label>
+                    Pipeline Status
+                    <select value={status} onChange={(e) => setStatus(e.target.value)}>
+                      <option value="PENDING">Pending (New Applicant)</option>
+                      <option value="UNDER_REVIEW">Under Review</option>
+                      <option value="SHORTLISTED">Shortlisted</option>
+                      <option value="INTERVIEW">Scheduled for Interview</option>
+                      <option value="REJECTED">Rejected</option>
+                      <option value="HIRED">Hired</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    Recruiter Feedback / Note (Optional)
+                    <textarea
+                      placeholder="Add recruiter feedback, interview schedule notes, or candidate comments..."
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                    />
+                  </label>
+
+                  <button type="submit" className="primary" disabled={busy}>
+                    {busy ? "Updating Action…" : "Save & Update Candidate Action"}
+                  </button>
+                </form>
+                <Notice notice={notice} />
+              </section>
+
+              {/* Status History Timeline Log */}
+              {detail?.statusHistory?.length > 0 && (
+                <section className="modal-section">
+                  <h4>📜 Action Audit Trail & Feedback Log</h4>
+                  <div className="log-timeline">
+                    {detail.statusHistory.map((history) => (
+                      <div key={history.id} className="log-item">
+                        <div className="log-item-meta">
+                          {history.status.replace("_", " ").toLowerCase()}
+                          <span>
+                            by {history.changedBy?.fullName || "Recruiter"} on {new Date(history.createdAt).toLocaleDateString()} at {new Date(history.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        </div>
+                        {history.note && <p className="log-item-note">"{history.note}"</p>}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </>
+          )}
+        </div>
+
+        <footer className="modal-footer">
+          <button type="button" className="outline" onClick={onClose}>Close Window</button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ employer, token, onLogout }) {
   const [jobs, setJobs] = useState([]);
   const [metrics, setMetrics] = useState(null);
@@ -418,6 +600,7 @@ function Dashboard({ employer, token, onLogout }) {
   const [notice, setNotice] = useState();
   const [busy, setBusy] = useState(false);
   const [selectedJob, setSelectedJob] = useState(null);
+  const [inspectApplication, setInspectApplication] = useState(null);
 
   const loadDashboard = async () => {
     if (!token) return;
@@ -450,22 +633,6 @@ function Dashboard({ employer, token, onLogout }) {
     });
     setSelectedJob(null);
     loadDashboard();
-  };
-
-  const [appStatusSelections, setAppStatusSelections] = useState({});
-
-  const changeApplicationStatus = async (application, newStatus) => {
-    setBusy(true);
-    setNotice();
-    try {
-      await api.updateApplicationStatus(token, application.id, newStatus, null);
-      setNotice({ type: "success", text: "Application status updated." });
-      loadDashboard();
-    } catch (error) {
-      setNotice({ type: "error", text: error.message });
-    } finally {
-      setBusy(false);
-    }
   };
 
   const editJob = (job) => {
@@ -506,6 +673,15 @@ function Dashboard({ employer, token, onLogout }) {
 
   return (
     <main className="manage">
+      {inspectApplication && (
+        <ApplicationModal
+          applicationSummary={inspectApplication}
+          token={token}
+          onClose={() => setInspectApplication(null)}
+          onUpdated={loadDashboard}
+        />
+      )}
+
       <section className="dashboard-summary">
         <header className="header-row">
           <div>
@@ -569,44 +745,45 @@ function Dashboard({ employer, token, onLogout }) {
       <section className="applications-panel">
         <div className="form-heading">
           <div>
-            <h2>Recent applications</h2>
-            <p className="muted">Latest candidate activity across your company.</p>
+            <h2>Recent applications inbox</h2>
+            <p className="muted">Click any application to review candidate screening answers, CV, and update action feedback.</p>
           </div>
         </div>
 
         <div className="application-list">
           {applications.map((application) => (
-            <article key={application.id} className="role">
+            <article key={application.id} className="role" style={{ borderLeft: "4px solid var(--teal-medium)" }}>
               <div className="job-header">
                 <div>
                   <h3>{application.applicant.fullName}</h3>
                   <span>{application.job.title} · {application.applicant.email || application.applicant.phone}</span>
                 </div>
-                <span className={`pill ${application.status === "PENDING" ? "open" : "closed"}`}>{application.status.toLowerCase()}</span>
+                <span className={`pill ${application.status === "PENDING" ? "open" : application.status === "REJECTED" ? "closed" : "open"}`}>
+                  {application.status.replace("_", " ").toLowerCase()}
+                </span>
               </div>
-              <p>{new Date(application.submittedAt).toLocaleDateString()}</p>
-              {application.resumeUrl && (
-                <div style={{ marginTop: 8 }}>
-                  <a 
-                    href={application.resumeUrl.startsWith("http") ? application.resumeUrl : `${import.meta.env.VITE_API_URL?.replace("/api", "") || "http://localhost:5000"}${application.resumeUrl}`} 
-                    target="_blank" 
+              <p>Submitted: {new Date(application.submittedAt).toLocaleDateString()}</p>
+              
+              <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center" }}>
+                <button
+                  type="button"
+                  className="primary"
+                  style={{ fontSize: 13, padding: "8px 16px" }}
+                  onClick={() => setInspectApplication(application)}
+                >
+                  🔍 Read Application & Take Action
+                </button>
+                {application.resumeUrl && (
+                  <a
+                    href={application.resumeUrl.startsWith("http") ? application.resumeUrl : `${import.meta.env.VITE_API_URL?.replace("/api", "") || "https://niajiri-backend.onrender.com"}${application.resumeUrl}`}
+                    target="_blank"
                     rel="noreferrer"
                     className="cv-link-btn"
+                    style={{ marginTop: 0 }}
                   >
-                    📄 View CV
+                    📄 CV
                   </a>
-                </div>
-              )}
-              <div style={{marginTop:8,display:'flex',gap:8,alignItems:'center'}}>
-                <select value={appStatusSelections[application.id] || application.status} onChange={(e) => setAppStatusSelections((s) => ({ ...s, [application.id]: e.target.value }))}>
-                  <option value="PENDING">Pending</option>
-                  <option value="UNDER_REVIEW">Under review</option>
-                  <option value="SHORTLISTED">Shortlisted</option>
-                  <option value="INTERVIEW">Interview</option>
-                  <option value="REJECTED">Rejected</option>
-                  <option value="HIRED">Hired</option>
-                </select>
-                <button className="outline" type="button" onClick={() => changeApplicationStatus(application, appStatusSelections[application.id] || application.status)} disabled={busy}>Update</button>
+                )}
               </div>
             </article>
           ))}
@@ -617,8 +794,22 @@ function Dashboard({ employer, token, onLogout }) {
   );
 }
 
-function ChatBubble({ message }) {
-  return <div className={`bubble ${message.sender.toLowerCase()}`}>{message.content}</div>;
+function WhatsAppChatBubble({ message }) {
+  const isBot = message.sender === "BOT";
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  return (
+    <div className={`whatsapp-msg-row ${isBot ? "bot" : "user"}`}>
+      <div className={`whatsapp-bubble-box ${isBot ? "bot" : "user"}`}>
+        {message.content}
+        <div className="whatsapp-msg-meta">
+          <span>{timeStr}</span>
+          {!isBot && <span className="whatsapp-ticks">✓✓</span>}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function NiaBot() {
@@ -639,7 +830,7 @@ function NiaBot() {
   useEffect(() => {
     api.jobs()
       .then((response) => setJobs(response.data.jobs))
-      .catch(() => setNotice({ type: "error", text: "NiaBot cannot reach the API. Please start the backend." }));
+      .catch(() => setNotice({ type: "error", text: "NiaBot cannot reach the API. Please check your connection." }));
   }, []);
 
   const begin = async (e) => {
@@ -661,8 +852,29 @@ function NiaBot() {
       setSession({ id: response.data.sessionId, question: response.data.question, complete: response.data.complete });
       setMessages([
         { sender: "BOT", content: response.data.greeting },
-        ...(response.data.question ? [{ sender: "BOT", content: response.data.question.label }] : [])
+        ...(response.data.question ? [{ sender: "BOT", content: response.data.question.label, options: response.data.question.options }] : [])
       ]);
+    } catch (error) {
+      setNotice({ type: "error", text: error.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendAnswerText = async (textToSend) => {
+    if (!session) return;
+    setBusy(true);
+    setNotice();
+
+    try {
+      const response = await api.answerChat(session.id, textToSend);
+      setMessages((current) => [
+        ...current,
+        { sender: "USER", content: textToSend || "Skipped" },
+        { sender: "BOT", content: response.data.message, options: response.data.question?.options }
+      ]);
+      setSession({ ...session, question: response.data.question, complete: response.data.complete });
+      setAnswer("");
     } catch (error) {
       setNotice({ type: "error", text: error.message });
     } finally {
@@ -672,24 +884,7 @@ function NiaBot() {
 
   const send = async (e) => {
     e.preventDefault();
-    if (!session) return;
-    setBusy(true);
-    setNotice();
-
-    try {
-      const response = await api.answerChat(session.id, answer);
-      setMessages((current) => [
-        ...current,
-        { sender: "USER", content: answer || "Skipped" },
-        { sender: "BOT", content: response.data.message }
-      ]);
-      setSession({ ...session, question: response.data.question, complete: response.data.complete });
-      setAnswer("");
-    } catch (error) {
-      setNotice({ type: "error", text: error.message });
-    } finally {
-      setBusy(false);
-    }
+    sendAnswerText(answer);
   };
 
   const lookupStatus = async (e) => {
@@ -724,9 +919,9 @@ function NiaBot() {
         </div>
       </header>
       <section className="bot-intro">
-        <span className="eyebrow">YOUR JOB SEARCH ASSISTANT</span>
-        <h1>Find work. Apply in a simple chat.</h1>
-        <p>NiaBot helps you explore live roles and submit an application without forms.</p>
+        <span className="eyebrow">YOUR WHATSAPP JOB SEARCH ASSISTANT</span>
+        <h1>Find work. Apply in WhatsApp.</h1>
+        <p>Experience an authentic WhatsApp job application conversational flow live in your browser.</p>
       </section>
 
       {!session ? (
@@ -749,7 +944,7 @@ function NiaBot() {
 
           <div className="candidate-panel">
             <form className="candidate-form" onSubmit={begin}>
-              <h2>Start your application</h2>
+              <h2>Start your WhatsApp application</h2>
               <label>
                 Full name
                 <input value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} required />
@@ -773,7 +968,7 @@ function NiaBot() {
                   <option value="SW">Swahili</option>
                 </select>
               </label>
-              <button disabled={busy}>{busy ? "Starting application…" : "Start application"}</button>
+              <button disabled={busy}>{busy ? "Opening WhatsApp chat…" : "Start WhatsApp chat"}</button>
               <Notice notice={notice} />
             </form>
 
@@ -805,15 +1000,6 @@ function NiaBot() {
                           <span className={`pill ${application.status === "PENDING" ? "open" : "closed"}`}>{application.status.toLowerCase()}</span>
                         </div>
                         <p>Submitted: {new Date(application.submittedAt).toLocaleDateString()}</p>
-                        <div className="status-history">
-                          <strong>Status history</strong>
-                          {application.statusHistory.length ? application.statusHistory.map((history) => (
-                            <div key={history.id} className="status-item">
-                              <span>{new Date(history.createdAt).toLocaleDateString()} - {history.status.toLowerCase()}</span>
-                              {history.note ? <p>{history.note}</p> : null}
-                            </div>
-                          )) : <p className="muted">No history available.</p>}
-                        </div>
                       </article>
                     ))
                   ) : (
@@ -827,29 +1013,65 @@ function NiaBot() {
           </div>
         </section>
       ) : (
-        <section className="chat-window">
-          <div className="chat-head">
-            <div>
-              <strong>{selected?.title || "Application in progress"}</strong>
-              <span>{selected?.company?.name || "NiaBot"}</span>
+        <section className="whatsapp-chat-container">
+          {/* Authentic WhatsApp Header */}
+          <div className="whatsapp-chat-header">
+            <div className="whatsapp-profile-info">
+              <div className="whatsapp-avatar">
+                N
+                <div className="whatsapp-avatar-badge">✓</div>
+              </div>
+              <div className="whatsapp-title-group">
+                <h3>
+                  Niajiri Mama · NiaBot
+                  <span style={{ color: "#25d366", fontSize: 13 }}>✓</span>
+                </h3>
+                <span>online • Business Account</span>
+              </div>
+            </div>
+            <div className="whatsapp-header-actions">
+              <span>📞</span>
+              <span>🔍</span>
+              <span>⋮</span>
             </div>
           </div>
 
-          <div className="messages">
+          {/* WhatsApp Chat Body */}
+          <div className="whatsapp-chat-body">
+            <div className="whatsapp-date-divider">TODAY</div>
             {messages.map((message, index) => (
-              <ChatBubble key={index} message={message} />
+              <div key={index}>
+                <WhatsAppChatBubble message={message} />
+                {/* Interactive choice chips if bot asks YES_NO or dropdown */}
+                {message.sender === "BOT" && index === messages.length - 1 && !complete && (
+                  <div className="whatsapp-chips-container">
+                    {session?.question?.type === "YES_NO" && (
+                      <>
+                        <button type="button" className="whatsapp-chip-btn" onClick={() => sendAnswerText("Yes")}>Yes</button>
+                        <button type="button" className="whatsapp-chip-btn" onClick={() => sendAnswerText("No")}>No</button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
             ))}
           </div>
 
-          <form className="answer" onSubmit={send}>
+          {/* WhatsApp Footer & Input Bar */}
+          <form className="whatsapp-chat-footer" onSubmit={send}>
+            <button type="button" className="whatsapp-icon-btn">😊</button>
+            <button type="button" className="whatsapp-icon-btn">📎</button>
             <input
-              placeholder={complete ? "Application complete" : "Type your answer here..."}
+              className="whatsapp-input-field"
+              placeholder={complete ? "Application submitted ✅" : "Type a message..."}
               value={answer}
               onChange={(e) => setAnswer(e.target.value)}
               disabled={busy || complete}
               required={!complete}
             />
-            <button type="submit" disabled={busy || complete}>{complete ? "Application submitted" : "Send"}</button>
+            <button type="submit" className="whatsapp-send-btn" disabled={busy || complete}>
+              {complete ? "✓" : "➤"}
+            </button>
           </form>
           <Notice notice={notice} />
         </section>
@@ -857,6 +1079,7 @@ function NiaBot() {
     </main>
   );
 }
+
 
 function CandidateStatusPage() {
   const [query, setQuery] = useState({ phone: "", email: "" });
